@@ -26,7 +26,7 @@ class Worker(QThread):
     def run(self):
         self.callable(*self.args, **self.kwargs)
 
-class ClickableLabel(QLabel):
+class ClickableLabel(QLabel): # this class is for the ROI selection
     def __init__(self, *args, **kwargs):
         super(ClickableLabel, self).__init__(*args, **kwargs)
         self.setMinimumSize(640, 480)  # Set minimum size for the label
@@ -98,8 +98,8 @@ class ActigraphyProcessorApp(QWidget):
         self.name_stamp_check = QCheckBox("Use Name Stamp")
         self.name_stamp_check.setChecked(True)
 
-        self.start_button = QPushButton("Start Actigraphy", self)
-        self.start_button.clicked.connect(self.start_actigraphy)
+        self.start_button = QPushButton("Start Detection", self)
+        self.start_button.clicked.connect(self.run)
 
         self.progress_bar = QProgressBar(self)
 
@@ -195,7 +195,7 @@ class ActigraphyProcessorApp(QWidget):
         qt_img = self.convert_cv_qt(frame)
         self.video_display_label.setPixmap(qt_img)
 
-    def start_actigraphy(self):
+    def run(self):
         # Retrieve the file path or directory from the QLineEdit widgets
         video_file = self.video_file_edit.text()
         video_folder = self.video_folder_edit.text()
@@ -274,7 +274,6 @@ class ActigraphyProcessorApp(QWidget):
         print("Actigraphy processing has been completed.")
         QMessageBox.information(self, "Actigraphy Processing", "Actigraphy processing has been completed.")
         self.start_button.setEnabled(True)  # Re-enable the start button
-        self.btn_start.setEnabled(False)  # Prevent processing without a new ROI
         self.btn_confirm_roi.setEnabled(False)
 
     def confirm_roi(self):
