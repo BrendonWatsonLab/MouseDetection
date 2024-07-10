@@ -375,10 +375,8 @@ class ActigraphyProcessor:
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         is_rat_present = False
+        prev_frame = None
         result_rows = []
-
-        # Reading first frame as prev frame
-        _, prev_frame = cap.read()
 
         while True:
             ret, frame = cap.read()
@@ -389,32 +387,32 @@ class ActigraphyProcessor:
 
             # Apply the defined ROI
             roi_frame = frame[roi[1]:roi[1]+roi[3], roi[0]:roi[0]+roi[2]]
-            prev_roi_frame = prev_frame[roi[1]:roi[1]+roi[3], roi[0]:roi[0]+roi[2]]
 
-            # Now use the new motion detection method
-            motion_detected = self.detect_motion(
-                roi_frame, prev_roi_frame, 
+            if prev_frame is not None:
+                motion_detected = self.detect_motion(
+                roi_frame, prev_frame, 
                 self.global_threshold, self.min_size_threshold, 
-                self.percentage_threshold, self.dilation_kernel
-            )              
-            posix_time = int(creation_time + (elapsed_millis))
+                self.percentage_threshold, self.dilation_kernel)            
+                posix_time = int(creation_time + (elapsed_millis))
 
-            if motion_detected and not is_rat_present:
-                is_rat_present = True
-                start_time = datetime.now()
-                start_time_posix = int(start_time.timestamp() * 1000)
-            elif not motion_detected and is_rat_present:
-                is_rat_present = False
-                end_time = datetime.now()
-                end_time_posix = int(end_time.timestamp() * 1000)
-                result_rows.append((start_time_posix, end_time_posix))
+                if motion_detected and not is_rat_present:
+                    is_rat_present = True
+                    start_time = datetime.now()
+                    start_time_posix = int(start_time.timestamp() * 1000)
+                elif not motion_detected and is_rat_present:
+                    is_rat_present = False
+                    end_time = datetime.now()
+                    end_time_posix = int(end_time.timestamp() * 1000)
+                    result_rows.append((start_time_posix, end_time_posix))
 
-            prev_frame = frame
+            prev_frame = roi_frame
 
             if progress_callback and frame_number % 100 == 0:  # Updates every 100 frames for progress bar
                 progress = (frame_number / total_frames) * 100
                 progress_callback.emit(int(progress))
-            
+        
+        print("Result rows:", result_rows)
+
         # Write the POSIX timestamps to the CSV
         with open(output_file_path, 'w', newline='') as output_file:
             writer = csv.writer(output_file)
@@ -492,57 +490,13 @@ class ActigraphyProcessor:
             progress_callback.emit(100)
 
     def detect_motion(self, frame, prev_frame, global_threshold, min_size_threshold, percentage_threshold, dilation_kernel):
-        # Check if the frame is already grayscale
-        if len(frame.shape) > 2 and frame.shape[2] == 3:
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        else:
-            frame_gray = frame  # If already grayscale, no conversion needed
-
-        if len(prev_frame.shape) > 2 and prev_frame.shape[2] == 3:
-            prev_frame_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
-        else:
-            prev_frame_gray = prev_frame
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        prev_frame_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
         
-        # Calculate absolute difference
-        abs_diff = np.abs(frame_gray.astype(np.float32) - prev_frame_gray.astype(np.float32))
-        raw_diff = np.sum(abs_diff)
-        rmse = np.sqrt(np.mean(abs_diff ** 2))
-
-        prev_frame_safe = prev_frame_gray.astype(np.float32) + 1e-5  # to avoid division by zero
-        
-        # Calculate percentage change
-        percentage_change = np.abs((frame_gray.astype(np.float32) - prev_frame_safe) / prev_frame_safe)
-
-        # Apply global threshold to get binary mask
-        _, abs_diff_mask = cv2.threshold(abs_diff, global_threshold, 255, cv2.THRESH_BINARY)
-        
-        # Scale percentage change to 0-100 and apply percentage threshold
-        percentage_change_scaled = np.clip(percentage_change * 100, 0, 100).astype(np.uint8)
-        _, percentage_change_mask = cv2.threshold(percentage_change_scaled, percentage_threshold, 255, cv2.THRESH_BINARY)
-
-        # Ensure both masks are of type uint8 before combining
-        abs_diff_mask = abs_diff_mask.astype(np.uint8)
-        percentage_change_mask = percentage_change_mask.astype(np.uint8)
-
-        # Combine masks with logical AND
-        combined_mask = cv2.bitwise_and(abs_diff_mask, percentage_change_mask)
-        
-        # Dilate the combined mask to fill in gaps and connect adjacent regions
-        kernel = np.ones((dilation_kernel, dilation_kernel), np.uint8)
-        dilated_mask = cv2.dilate(combined_mask, kernel, iterations=1)
-        
-        # Find connected components and filter based on their size
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(dilated_mask, connectivity=8)
-        
-        # Use boolean indexing to create filtered mask based on component areas
-        component_areas = stats[1:, cv2.CC_STAT_AREA]  # exclude the background component
-        large_components = component_areas >= min_size_threshold
-        filtered_mask = np.zeros_like(dilated_mask)
-        filtered_mask[np.isin(labels, np.nonzero(large_components)[0] + 1)] = 255
-
-        # Calculate the sum of the filtered mask to get the count of selected pixels
-        selected_pixel_diff = np.sum(filtered_mask)
-        return selected_pixel_diff > min_size_threshold
+        abs_diff = cv2.absdiff(prev_frame_gray, frame_gray)
+        _, abs_diff_thresh = cv2.threshold(abs_diff, 20, 255, cv2.THRESH_BINARY)
+        num_white_pixels = cv2.countNonZero(abs_diff_thresh)
+        return num_white_pixels > 100
 
     @staticmethod
     def _get_creation_time_from_name(filename):
