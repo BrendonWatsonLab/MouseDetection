@@ -493,10 +493,50 @@ class ActigraphyProcessor:
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         prev_frame_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
         
-        abs_diff = cv2.absdiff(prev_frame_gray, frame_gray)
-        _, abs_diff_thresh = cv2.threshold(abs_diff, 20, 255, cv2.THRESH_BINARY)
-        num_white_pixels = cv2.countNonZero(abs_diff_thresh)
-        return num_white_pixels > 100
+        # Calculate absolute difference
+        abs_diff = np.abs(frame_gray.astype(np.float32) - prev_frame_gray.astype(np.float32))
+        raw_diff = np.sum(abs_diff)
+        rmse = np.sqrt(np.mean(abs_diff ** 2))
+
+        prev_frame_safe = prev_frame_gray.astype(np.float32) + 1e-5  # to avoid division by zero
+        
+        # Calculate percentage change
+        percentage_change = np.abs((frame_gray.astype(np.float32) - prev_frame_safe) / prev_frame_safe)
+
+        # Apply global threshold to get binary mask
+        _, abs_diff_mask = cv2.threshold(abs_diff, global_threshold, 255, cv2.THRESH_BINARY)
+        
+        # Scale percentage change to 0-100 and apply percentage threshold
+        percentage_change_scaled = np.clip(percentage_change * 100, 0, 100).astype(np.uint8)
+        _, percentage_change_mask = cv2.threshold(percentage_change_scaled, percentage_threshold, 255, cv2.THRESH_BINARY)
+
+        # Ensure both masks are of type uint8 before combining
+        abs_diff_mask = abs_diff_mask.astype(np.uint8)
+        percentage_change_mask = percentage_change_mask.astype(np.uint8)
+
+        # Combine masks with logical AND
+        combined_mask = cv2.bitwise_and(abs_diff_mask, percentage_change_mask)
+        
+        # Dilate the combined mask to fill in gaps and connect adjacent regions
+        kernel = np.ones((dilation_kernel, dilation_kernel), np.uint8)
+        dilated_mask = cv2.dilate(combined_mask, kernel, iterations=1)
+        
+        # Find connected components and filter based on their size
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(dilated_mask, connectivity=8)
+        
+        # Use boolean indexing to create filtered mask based on component areas
+        component_areas = stats[1:, cv2.CC_STAT_AREA]  # exclude the background component
+        large_components = component_areas >= min_size_threshold
+        filtered_mask = np.zeros_like(dilated_mask)
+        filtered_mask[np.isin(labels, np.nonzero(large_components)[0] + 1)] = 255
+
+        # Calculate the sum of the filtered mask to get the count of selected pixels
+        selected_pixel_diff = np.sum(filtered_mask)
+
+        # Print debug info
+        print(f"RMSE: {rmse}, Raw Diff: {raw_diff}, Selected Pixels: {selected_pixel_diff}")
+
+        return selected_pixel_diff > 0
 
     @staticmethod
     def _get_creation_time_from_name(filename):
