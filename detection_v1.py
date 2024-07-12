@@ -189,6 +189,24 @@ class ActigraphyProcessorApp(QWidget):
     def browse_video_folder(self):
         dir_name = QFileDialog.getExistingDirectory(self, 'Open Video Folder')
         self.video_folder_edit.setText(dir_name)
+        
+        if dir_name:
+            mp4_files = [f for f in os.listdir(dir_name) if f.endswith('.mp4')]
+            
+            if mp4_files:
+                first_video_file = os.path.join(dir_name, mp4_files[0])
+                cap = cv2.VideoCapture(first_video_file)
+                ret, frame = cap.read()
+                cap.release()
+                
+                if ret:
+                    self.original_frame = frame  # Store the original frame
+                    self.display_frame(frame)  # Display this frame on video_display_label
+                    self.btn_confirm_roi.setEnabled(True)  # Enable the Confirm ROI button
+                else:
+                    QMessageBox.warning(self, "Error", "Could not read the first frame of the first video file.")
+            else:
+                QMessageBox.warning(self, "Error", "No MP4 files found in the selected folder.")
 
     def display_frame(self, frame):
         """Display the frame in the ClickableLabel."""
@@ -196,12 +214,10 @@ class ActigraphyProcessorApp(QWidget):
         self.video_display_label.setPixmap(qt_img)
 
     def run(self):
-        # Retrieve the file path or directory from the QLineEdit widgets
         video_file = self.video_file_edit.text()
         video_folder = self.video_folder_edit.text()
 
         try:
-            # Get thresholding and kernel parameters from the QLineEdit widgets
             min_size_threshold = int(self.min_size_threshold_edit.text())
             global_threshold = int(self.global_threshold_edit.text())
             percentage_threshold = int(self.percentage_threshold_edit.text())
@@ -211,53 +227,37 @@ class ActigraphyProcessorApp(QWidget):
             self.start_button.setEnabled(True)
             return
 
-        # Get the checkbox states
+        # check the status of clickable boxes
         oaf = self.oaf_check.isChecked()
         name_stamp = self.name_stamp_check.isChecked()
 
-        # Set the processor's attributes
-        self.actigraphy_processor.set_processing_parameters(
-            global_threshold, min_size_threshold, 
-            percentage_threshold, dilation_kernel
-        )
+        # sets parameters passed from GUI
+        self.actigraphy_processor.set_processing_parameters(global_threshold, min_size_threshold, percentage_threshold, dilation_kernel)
 
-        # Set the output file path if the user has selected one
+        # looks at output file path and sets it
         output_file_path = self.output_directory_edit.text().strip()
-        if output_file_path:
-            self.actigraphy_processor.output_file_path = output_file_path
-        else:
-            # If no output path is provided, use the default naming strategy
-            self.actigraphy_processor.output_file_path = None
+        self.actigraphy_processor.output_file_path = output_file_path if output_file_path else None
 
-        # Check if a single video file or video directory has been specified
         if video_file and self.roi is not None:
             self.worker = Worker(
                 self.actigraphy_processor.process_single_video_file,
-                video_file,
-                name_stamp,
-                self.roi,  # Use the roi attribute here
-                self.output_directory
+                video_file, name_stamp, self.roi, self.output_directory
             )
-            # Now correctly pass the progress_callback as an argument to process_single_video_file
             self.worker.kwargs['progress_callback'] = self.worker.progress_signal
-            # Connect signals
             self.worker.progress_signal.connect(self.update_progress_bar)
             self.worker.finished.connect(self.on_processing_finished)
             self.worker.start()
-        elif video_folder:
-            # Create the worker for processing the folder
+        elif video_folder and self.roi is not None:
             self.worker = Worker(
                 self.actigraphy_processor.process_video_files, 
-                video_folder, oaf, set_roi, name_stamp, self.output_directory
+                video_folder, oaf, name_stamp, self.roi, self.output_directory
             )
-        
-            # Connect the progress signal before starting the worker
             self.worker.kwargs['progress_callback'] = self.worker.progress_signal
             self.worker.progress_signal.connect(self.update_folder_progress_bar)
             self.worker.finished.connect(self.on_processing_finished)
             self.worker.start()
         else:
-            print("No video file or folder has been selected.")
+            print("No video file or folder has been selected, or ROI not set.")
             self.start_button.setEnabled(True)
         
     def update_progress_bar(self, value):
@@ -423,7 +423,7 @@ class ActigraphyProcessor:
         print(f"Actigraphy processing completed for {video_file}")
         print("*" * 75)
 
-    def process_video_files(self, video_folder, oaf, set_roi, name_stamp, output_directory, progress_callback=None):
+    def process_video_files(self, video_folder, oaf, name_stamp, roi, output_directory, progress_callback=None):
         start_time = time.time()
         total_frames_processed = 0
         total_time_taken = 0
@@ -441,51 +441,29 @@ class ActigraphyProcessor:
             print("No video files to process.")
             return
 
-        # Initialize roi_pts here if set_roi is True and the ROI hasn't been set yet
-        if set_roi and not self.roi_pts and all_mp4_files:
-            first_video_file = all_mp4_files[0]
-            cap = cv2.VideoCapture(first_video_file)
-            if cap.isOpened():
-                self.roi_pts = self._select_roi_from_first_frame(cap)
-                cap.release()  # Release the capture object after getting ROI
-            else:
-                print(f"Failed to open the first video file: {first_video_file}")
-                return
-
         for mp4_file in all_mp4_files:
             file_start_time = time.time()
-
-            # Process the single video file
-            self.process_single_video_file(mp4_file, name_stamp, set_roi, output_directory, None, self.roi_pts)
-
-            # track timing
+            self.process_single_video_file(mp4_file, name_stamp, roi, output_directory, None)
             file_end_time = time.time()
-            file_time_taken = file_end_time - file_start_time
-            total_time_taken += file_time_taken
-
+            total_time_taken += (file_end_time - file_start_time)
             files_processed += 1
-            # Calculate and emit the overall processing progress
-            if progress_callback:
-                folder_progress = int((files_processed / total_files) * 100)
-                progress_callback.emit(folder_progress)
 
-            # gets frames processed
+            if progress_callback:
+                progress = int((files_processed / total_files) * 100)
+                progress_callback.emit(progress)
+
             cap = cv2.VideoCapture(mp4_file)
             total_frames_processed += int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
-
-        # Stop the overall timer
+        
         end_time = time.time()
-
         total_time_taken = end_time - start_time
         time_per_frame = total_time_taken / total_frames_processed if total_frames_processed else float('inf')
 
-        # Print the cumulative results
         print("Total Time Taken for All Videos: {:.2f} seconds".format(total_time_taken))
         print("Total Frames Processed for All Videos: {}".format(total_frames_processed))
         print("Average Time Per Frame for All Videos: {:.4f} seconds".format(time_per_frame))
         
-        # Emit the final signal when done
         if progress_callback:
             progress_callback.emit(100)
 
