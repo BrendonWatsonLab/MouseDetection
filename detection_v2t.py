@@ -10,6 +10,7 @@ from datetime import datetime
 import threading
 from tkinter import *
 from tkinter import filedialog, messagebox, ttk
+from PIL import Image, ImageTk  # Important: Add this import statement
 
 class ActigraphyProcessorApp:
     def __init__(self, root, actigraphy_processor):
