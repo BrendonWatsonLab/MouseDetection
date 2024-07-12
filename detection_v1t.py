@@ -354,38 +354,12 @@ class ActigraphyProcessor:
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         prev_frame_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
         
+        # Calculate absolute difference
         abs_diff = np.abs(frame_gray.astype(np.float32) - prev_frame_gray.astype(np.float32))
         raw_diff = np.sum(abs_diff)
         rmse = np.sqrt(np.mean(abs_diff ** 2))
-
-        prev_frame_safe = prev_frame_gray.astype(np.float32) + 1e-5
-
-        percentage_change = np.abs((frame_gray.astype(np.float32) - prev_frame_safe) / prev_frame_safe)
-        percentage_change_scaled = np.clip(percentage_change * 100, 0, 100).astype(np.uint8)
-        
-        _, abs_diff_mask = cv2.threshold(abs_diff, global_threshold, 255, cv2.THRESH_BINARY)
-        _, percentage_change_mask = cv2.threshold(percentage_change_scaled, percentage_threshold, 255, cv2.THRESH_BINARY)
-
-        abs_diff_mask = abs_diff_mask.astype(np.uint8)
-        percentage_change_mask = percentage_change_mask.astype(np.uint8)
-
-        combined_mask = cv2.bitwise_and(abs_diff_mask, percentage_change_mask)
-        kernel = np.ones((dilation_kernel, dilation_kernel), np.uint8)
-        dilated_mask = cv2.dilate(combined_mask, kernel, iterations=1)
-        
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(dilated_mask, connectivity=8)
-        
-        component_areas = stats[1:, cv2.CC_STAT_AREA]
-        large_components = component_areas >= min_size_threshold
-        filtered_mask = np.zeros_like(dilated_mask)
-        filtered_mask[np.isin(labels, np.nonzero(large_components)[0] + 1)] = 255
-
-        selected_pixel_diff = np.sum(filtered_mask)
-        
-        cv2.imshow("Filtered Mask", filtered_mask)
-        cv2.waitKey(1)
-        
-        return selected_pixel_diff > 0
+        print(rmse)
+        return rmse > 1  # Adjust the pixel count threshold as needed
 
     @staticmethod
     def _get_creation_time_from_name(filename):
