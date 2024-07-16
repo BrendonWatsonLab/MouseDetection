@@ -9,6 +9,7 @@ from PyQt5.QtGui import QPainter, QPen, QPixmap, QImage
 import numpy as np
 import argparse
 import os
+os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH")
 import re
 import datetime
 import time
@@ -466,7 +467,7 @@ class ActigraphyProcessor:
             for start, end in result_rows:
                 writer.writerow([start, end])
         cap.release()
-        #print(f"Detection processing completed for {video_file}")
+        print(f"Detection processing completed for {video_file}")
         print("*" * 75)
 
     def process_video_files(self, video_folder, oaf, name_stamp, roi, output_directory, progress_callback=None):
