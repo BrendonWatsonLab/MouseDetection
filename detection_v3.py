@@ -9,7 +9,7 @@ from PyQt5.QtGui import QPainter, QPen, QPixmap, QImage
 import numpy as np
 import argparse
 import os
-os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH")
+os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH") # FINALLY FIXED 'xcb' plugin error
 import re
 import datetime
 import time
@@ -27,7 +27,7 @@ class Worker(QThread):
     def run(self):
         self.callable(*self.args, **self.kwargs)
 
-class ClickableLabel(QLabel): # this class is for the ROI selection
+class ClickableLabel(QLabel): # this class is for the manual ROI selection
     def __init__(self, *args, **kwargs):
         super(ClickableLabel, self).__init__(*args, **kwargs)
         self.setMinimumSize(640, 480)  # Set minimum size for the label
@@ -58,7 +58,7 @@ class ClickableLabel(QLabel): # this class is for the ROI selection
             painter.drawRect(self.current_rect.normalized())
 
 class ActigraphyProcessorApp(QWidget):
-    def __init__(self, actigraphy_processor):
+    def __init__(self, actigraphy_processor): # setup stuff
         super().__init__()
         self.roi = None
         self.actigraphy_processor = actigraphy_processor
@@ -67,7 +67,7 @@ class ActigraphyProcessorApp(QWidget):
         self.worker = None
         self.init_ui()
 
-    def init_ui(self):
+    def init_ui(self): # more GUI setup stuff
         self.scroll_area = QScrollArea()  # Create a new QScrollArea
         self.scroll_area.setWidgetResizable(True)
         layout = QVBoxLayout()
@@ -203,7 +203,7 @@ class ActigraphyProcessorApp(QWidget):
             cap = cv2.VideoCapture(file_name)
             ret, frame = cap.read()
             cap.release()
-            if ret:
+            if ret: # looks at first frame of video to select ROI
                 self.original_frame = frame  # Store the original frame
                 self.display_frame(frame)  # Display this frame on video_display_label
                 self.btn_confirm_roi.setEnabled(True)  # Enable the Confirm ROI button
@@ -215,7 +215,7 @@ class ActigraphyProcessorApp(QWidget):
         if dir_name:
             mp4_files = [f for f in os.listdir(dir_name) if f.endswith('.mp4')]
             
-            if mp4_files:
+            if mp4_files: # looks at first frame of first file to choose ROI
                 first_video_file = os.path.join(dir_name, mp4_files[0])
                 cap = cv2.VideoCapture(first_video_file)
                 ret, frame = cap.read()
@@ -253,7 +253,7 @@ class ActigraphyProcessorApp(QWidget):
         video_file = self.video_file_edit.text()
         video_folder = self.video_folder_edit.text()
 
-        try:
+        try: # initializing threshold stuff
             min_size_threshold = int(self.min_size_threshold_edit.text())
             global_threshold = int(self.global_threshold_edit.text())
             percentage_threshold = int(self.percentage_threshold_edit.text())
@@ -266,12 +266,13 @@ class ActigraphyProcessorApp(QWidget):
         oaf = self.oaf_check.isChecked()
         name_stamp = self.name_stamp_check.isChecked()
 
+        # sets kernel and threshold parameters
         self.actigraphy_processor.set_processing_parameters(global_threshold, min_size_threshold, percentage_threshold, dilation_kernel)
 
         output_file_path = self.output_directory_edit.text().strip()
         self.actigraphy_processor.output_file_path = output_file_path if output_file_path else None
 
-        if video_file and self.roi is not None:
+        if video_file and self.roi is not None: # runs the video file
             self.worker = Worker(
                 self.actigraphy_processor.process_single_video_file,
                 video_file, name_stamp, self.roi, self.output_directory
@@ -280,7 +281,7 @@ class ActigraphyProcessorApp(QWidget):
             self.worker.progress_signal.connect(self.update_progress_bar)
             self.worker.finished.connect(self.on_processing_finished)
             self.worker.start()
-        elif video_folder and self.roi is not None:
+        elif video_folder and self.roi is not None: #runs the video folder
             self.worker = Worker(
                 self.actigraphy_processor.process_video_files, 
                 video_folder, oaf, name_stamp, self.roi, self.output_directory
@@ -299,7 +300,7 @@ class ActigraphyProcessorApp(QWidget):
     def update_folder_progress_bar(self, value):
         self.progress_bar.setValue(value)
 
-    def on_processing_finished(self):
+    def on_processing_finished(self): # stuff that occurs when processing is finished
         self.progress_bar.setValue(100)
         self.roi_status_label.setText("ROI not set")
         self.roi_status_label.setStyleSheet("")
@@ -342,7 +343,7 @@ class ActigraphyProcessorApp(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Invalid ROI coordinates: {e}")
 
-    def convert_cv_qt(self, cv_img):
+    def convert_cv_qt(self, cv_img): # used to display first frame of video to GUI
         rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_image.shape
         bytes_per_line = ch * w
@@ -365,7 +366,7 @@ class ActigraphyProcessor:
             self.percentage_threshold = percentage_threshold
             self.dilation_kernel = dilation_kernel
 
-    def get_nested_paths(self, root_dir):
+    def get_nested_paths(self, root_dir): # looks at subfolders
         queue = [root_dir]
         paths = []
         print('Here are all the nested folders within the selected directory:')
@@ -390,7 +391,7 @@ class ActigraphyProcessor:
             print("List of all the MP4 files in {}: ".format(directory_path))
             for mp4_file in mp4_files:
                 print(mp4_file)
-                if mp4_file[:-4] + "_detection.csv" in csv_files:
+                if mp4_file[:-4] + "_detection.csv" in csv_files: 
                     print("Detection file already found for {}.".format(mp4_file))
                     if oaf:
                         print("Overide Detection Files set True, Redoing this file.")
@@ -437,13 +438,14 @@ class ActigraphyProcessor:
             # Apply the defined ROI
             roi_frame = frame[roi[1]:roi[1]+roi[3], roi[0]:roi[0]+roi[2]]
 
-            if prev_frame is not None:
+            if prev_frame is not None: # ensures this isn't the first frame
                 motion_detected = self.detect_motion(
                 roi_frame, prev_frame, 
                 self.global_threshold, self.min_size_threshold, 
                 self.percentage_threshold, self.dilation_kernel)            
                 posix_time = int(creation_time + (elapsed_millis))
-
+                
+                # logic for start and end frame here
                 if motion_detected and not is_rat_present:
                     is_rat_present = True
                     start_time = datetime.now()
@@ -488,7 +490,7 @@ class ActigraphyProcessor:
             print("No video files to process.")
             return
 
-        for mp4_file in all_mp4_files:
+        for mp4_file in all_mp4_files: # runs through each video file detected
             file_start_time = time.time()
             self.process_single_video_file(mp4_file, name_stamp, roi, output_directory, None)
             file_end_time = time.time()
@@ -503,6 +505,7 @@ class ActigraphyProcessor:
             total_frames_processed += int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
         
+        # stats for long term recordings
         end_time = time.time()
         total_time_taken = end_time - start_time
         time_per_frame = total_time_taken / total_frames_processed if total_frames_processed else float('inf')
