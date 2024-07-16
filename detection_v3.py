@@ -9,7 +9,7 @@ from PyQt5.QtGui import QPainter, QPen, QPixmap, QImage
 import numpy as np
 import argparse
 import os
-os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH") # FINALLY FIXED 'xcb' plugin error
+#os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH") # FINALLY FIXED 'xcb' plugin error
 import re
 import datetime
 import time
