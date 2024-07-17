@@ -4,7 +4,7 @@ import csv
 import sys
 import time
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QFileDialog, QCheckBox, QVBoxLayout, QProgressBar, QMessageBox, QScrollArea, QLabel
-from PyQt5.QtCore import QThread, pyqtSignal, Qt, QRect, QPoint, QSize
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QRect, QPoint, QSize, QTimer
 from PyQt5.QtGui import QPainter, QPen, QPixmap, QImage
 import numpy as np
 import argparse
@@ -68,6 +68,11 @@ class ActigraphyProcessorApp(QWidget):
         self.thread = None
         self.worker = None
         self.init_ui()
+
+        # Add timer for visualization updates
+        self.visualization_timer = QTimer(self)
+        self.visualization_timer.timeout.connect(self.update_visualization)
+        self.visualization_timer.start(1000)  # Update visualization every 1 second
 
     def init_ui(self): # more GUI setup stuff
         self.scroll_area = QScrollArea()  # Create a new QScrollArea
@@ -320,6 +325,33 @@ class ActigraphyProcessorApp(QWidget):
         p = convert_to_Qt_format.scaled(self.video_display_label.width(), self.video_display_label.height(), Qt.KeepAspectRatio)
         return QPixmap.fromImage(p)
 
+    def update_visualization(self):
+        while self.actigraphy_processor.frames_to_visualize:
+            frame, frame_gray, thresholded, contours = self.actigraphy_processor.frames_to_visualize.pop(0)
+            self.visualize_detection(frame, frame_gray, thresholded, contours)
+
+    def visualize_detection(self, frame, frame_gray, thresholded, contours):
+        vis_frame = frame.copy()
+
+        for contour in contours:
+            cv2.drawContours(vis_frame, [contour], -1, (0, 255, 0), 2)
+
+        plt.figure(figsize=(15, 5))
+
+        plt.subplot(1, 3, 1)
+        plt.title("Original Frame with Contours")
+        plt.imshow(cv2.cvtColor(vis_frame, cv2.COLOR_BGR2RGB))
+
+        plt.subplot(1, 3, 2)
+        plt.title("Thresholded Image")
+        plt.imshow(thresholded, cmap='gray')
+
+        plt.subplot(1, 3, 3)
+        plt.title("Gray Frame")
+        plt.imshow(frame_gray, cmap='gray')
+
+        plt.show()
+
 class ActigraphyProcessor:
     def __init__(self):
         self.roi_pts=None
@@ -328,6 +360,7 @@ class ActigraphyProcessor:
         self.intensity_threshold = 100
         self.contrast_threshold = 100
         self.min_duration = 2000 # in ms
+        self.frames_to_visualize = []
 
     def get_nested_paths(self, root_dir): # looks at subfolders
         queue = [root_dir]
@@ -401,8 +434,8 @@ class ActigraphyProcessor:
             elapsed_millis = cap.get(cv2.CAP_PROP_POS_MSEC)
 
             roi_frame = frame[roi[1]:roi[1] + roi[3], roi[0]:roi[0] + roi[2]]
-            visualize = (frame_number % 100 == 0)  # Visualize every 100th frame
-            motion_detected = self.detect_mouse(roi_frame, self.min_size_threshold, intensity_threshold=50, contrast_threshold=50)
+            visualize = (frame_number % 100 == 0)  # Collect frames for visualization every 100th frame
+            motion_detected = self.detect_mouse(roi_frame, self.min_size_threshold, intensity_threshold=50, contrast_threshold=50, visualize=visualize)
             posix_time = int(creation_time + elapsed_millis)
 
             print(f"Frame: {frame_number}, Motion Detected: {motion_detected}, POSIX Time: {posix_time}")
@@ -485,20 +518,17 @@ class ActigraphyProcessor:
         if progress_callback:
             progress_callback.emit(100)
 
-    def detect_mouse(self, frame, min_size_threshold, intensity_threshold=50, contrast_threshold=50):
+    def detect_mouse(self, frame, min_size_threshold, intensity_threshold=50, contrast_threshold=50, visualize=False):
         if len(frame.shape) == 3 and frame.shape[2] == 3:
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         else:
             frame_gray = frame
 
-        # Apply binary thresholding
         _, thresholded = cv2.threshold(frame_gray, intensity_threshold, 255, cv2.THRESH_BINARY_INV)
 
-        # Morphological operations to reduce noise
         kernel = np.ones((5, 5), np.uint8)
         thresholded = cv2.morphologyEx(thresholded, cv2.MORPH_CLOSE, kernel)
 
-        # Detect contours
         contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         detected = False
@@ -512,8 +542,12 @@ class ActigraphyProcessor:
                 if mean_intensity < contrast_threshold:
                     detected = True
                     break
+        
+        if visualize:
+            # Collect frames instead of visualizing directly
+            self.frames_to_visualize.append((frame.copy(), frame_gray.copy(), thresholded.copy(), list(contours)))
 
-        print(f"Contours found: {len(contours)}, Mouse Detected: {detected}")
+        print(f"Contours found: {len(contours)}, Motion Detected: {detected}")
         return detected
 
     @staticmethod
