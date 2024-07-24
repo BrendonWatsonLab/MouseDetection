@@ -60,7 +60,7 @@ class ClickableLabel(QLabel): # this class is for the manual ROI selection
             painter.drawRect(self.current_rect.normalized())
 
 class ActigraphyProcessorApp(QWidget):
-    def __init__(self, actigraphy_processor): # setup stuff
+    def __init__(self, actigraphy_processor):
         super().__init__()
         self.roi = None
         self.actigraphy_processor = actigraphy_processor
@@ -68,18 +68,16 @@ class ActigraphyProcessorApp(QWidget):
         self.thread = None
         self.worker = None
         self.init_ui()
+        
+        self.video_timer = QTimer(self)  # Timer for updating video frame display
+        self.video_timer.timeout.connect(self.update_video_frame)
+        self.video_timer.start(30)  # Update every 30 milliseconds for ~30 FPS
 
-        # Add timer for visualization updates
-        self.visualization_timer = QTimer(self)
-        self.visualization_timer.timeout.connect(self.update_visualization)
-        self.visualization_timer.start(1000)  # Update visualization every 1 second
-
-    def init_ui(self): # more GUI setup stuff
-        self.scroll_area = QScrollArea()  # Create a new QScrollArea
+    def init_ui(self):
+        self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         layout = QVBoxLayout()
 
-        # creating buttons for the GUI layout
         self.video_file_label = QLabel("Video File:")
         self.video_file_edit = QLineEdit()
         self.video_file_button = QPushButton("Browse Files")
@@ -104,7 +102,6 @@ class ActigraphyProcessorApp(QWidget):
         self.output_directory_button = QPushButton("Select Output File Destination")
         self.output_directory_button.clicked.connect(self.select_output_file_destination)
 
-        # ROI Manual input fields and button
         self.manual_roi_label = QLabel("Manual ROI Coordinates (x, y, w, h):")
         self.manual_roi_x_edit = QLineEdit()
         self.manual_roi_y_edit = QLineEdit()
@@ -113,13 +110,13 @@ class ActigraphyProcessorApp(QWidget):
         self.manual_roi_confirm_btn = QPushButton("Confirm Manual ROI", self)
         self.manual_roi_confirm_btn.clicked.connect(self.confirm_manual_roi)
 
-        # ROI stuff
         self.btn_confirm_roi = QPushButton("Confirm ROI", self)
         self.btn_confirm_roi.clicked.connect(self.confirm_roi)
         self.video_display_label = ClickableLabel()
         self.roi_status_label = QLabel("ROI not set", self)
 
-        #formally adds all widgets
+        self.real_time_video_label = QLabel()  # QLabel for displaying real-time video
+
         layout.addWidget(self.progress_bar)
         layout.addWidget(self.video_file_label)
         layout.addWidget(self.video_file_edit)
@@ -133,8 +130,7 @@ class ActigraphyProcessorApp(QWidget):
         layout.addWidget(self.output_directory_label)
         layout.addWidget(self.output_directory_edit)
         layout.addWidget(self.output_directory_button)
-
-        # ROI widgets
+        
         layout.addWidget(self.manual_roi_label)
         layout.addWidget(QLabel("x:"))
         layout.addWidget(self.manual_roi_x_edit)
@@ -148,26 +144,18 @@ class ActigraphyProcessorApp(QWidget):
         layout.addWidget(self.video_display_label)
         layout.addWidget(self.btn_confirm_roi)
         layout.addWidget(self.roi_status_label)
+        layout.addWidget(self.real_time_video_label)  # Add the real-time video QLabel to the layout
 
-        # Create a container widget for the layout
         container = QWidget()
         container.setLayout(layout)
-
-        # Set the layout container as the scroll area's widget
         self.scroll_area.setWidget(container)
-
-        # Create a new layout to hold the scroll area
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.scroll_area)
-
-        # Set the main layout for the window
         self.setLayout(main_layout)
         self.setWindowTitle('Mouse Detection-inator')
-    
-        # Set the minimum width and maximum height of the window
         self.setMinimumWidth(800)
         self.setMaximumHeight(600)
-    
+
     def select_output_file_destination(self):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
@@ -178,7 +166,6 @@ class ActigraphyProcessorApp(QWidget):
             options=options
         )
         if directory:
-            # Assuming you want to set the output directory to a class member
             self.output_directory = directory
             self.output_directory_edit.setText(directory)
 
@@ -218,7 +205,6 @@ class ActigraphyProcessorApp(QWidget):
                 QMessageBox.warning(self, "Error", "No MP4 files found in the selected folder.")
 
     def display_frame(self, frame):
-        """Display the frame in the ClickableLabel."""
         qt_img = self.convert_cv_qt(frame)
         self.video_display_label.setPixmap(qt_img)
 
@@ -274,7 +260,7 @@ class ActigraphyProcessorApp(QWidget):
     def update_folder_progress_bar(self, value):
         self.progress_bar.setValue(value)
 
-    def on_processing_finished(self): # stuff that occurs when processing is finished
+    def on_processing_finished(self):
         self.progress_bar.setValue(100)
         self.roi_status_label.setText("ROI not set")
         self.roi_status_label.setStyleSheet("")
@@ -317,7 +303,7 @@ class ActigraphyProcessorApp(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Invalid ROI coordinates: {e}")
 
-    def convert_cv_qt(self, cv_img): # used to display first frame of video to GUI
+    def convert_cv_qt(self, cv_img):
         rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_image.shape
         bytes_per_line = ch * w
@@ -325,32 +311,17 @@ class ActigraphyProcessorApp(QWidget):
         p = convert_to_Qt_format.scaled(self.video_display_label.width(), self.video_display_label.height(), Qt.KeepAspectRatio)
         return QPixmap.fromImage(p)
 
-    def update_visualization(self):
-        while self.actigraphy_processor.frames_to_visualize:
+    def update_video_frame(self):
+        if self.actigraphy_processor.frames_to_visualize:
             frame, frame_gray, thresholded, contours = self.actigraphy_processor.frames_to_visualize.pop(0)
             self.visualize_detection(frame, frame_gray, thresholded, contours)
-
+    
     def visualize_detection(self, frame, frame_gray, thresholded, contours):
         vis_frame = frame.copy()
-
         for contour in contours:
             cv2.drawContours(vis_frame, [contour], -1, (0, 255, 0), 2)
-
-        plt.figure(figsize=(15, 5))
-
-        plt.subplot(1, 3, 1)
-        plt.title("Original Frame with Contours")
-        plt.imshow(cv2.cvtColor(vis_frame, cv2.COLOR_BGR2RGB))
-
-        plt.subplot(1, 3, 2)
-        plt.title("Thresholded Image")
-        plt.imshow(thresholded, cmap='gray')
-
-        plt.subplot(1, 3, 3)
-        plt.title("Gray Frame")
-        plt.imshow(frame_gray, cmap='gray')
-
-        plt.show()
+        qt_img = self.convert_cv_qt(vis_frame)
+        self.real_time_video_label.setPixmap(qt_img)
 
 class ActigraphyProcessor:
     def __init__(self):
@@ -362,14 +333,12 @@ class ActigraphyProcessor:
         self.min_duration = 2000 # in ms
         self.frames_to_visualize = []
 
-    def get_nested_paths(self, root_dir): # looks at subfolders
+    def get_nested_paths(self, root_dir):
         queue = [root_dir]
         paths = []
-        print('Here are all the nested folders within the selected directory:')
         while queue:
             current_dir = queue.pop(0)
             paths.append(current_dir)
-            print(current_dir)
 
             for child_dir in sorted(os.listdir(current_dir)):
                 child_path = os.path.join(current_dir, child_dir)
@@ -384,11 +353,8 @@ class ActigraphyProcessor:
         
         if mp4_files:
             updated_mp4_files = []
-            print("List of all the MP4 files in {}: ".format(directory_path))
             for mp4_file in mp4_files:
-                print(mp4_file)
                 if mp4_file[:-4] + "_detection.csv" in csv_files: 
-                    print("Detection file already found for {}.".format(mp4_file))
                     if oaf:
                         print("Overide Detection Files set True, Redoing this file.")
                     else:
@@ -396,8 +362,6 @@ class ActigraphyProcessor:
                 
                 updated_mp4_files.append(mp4_file)
             mp4_files = updated_mp4_files
-        else:
-            print("No MP4 files found in {}.".format(directory_path))
         
         return mp4_files
 
@@ -409,10 +373,8 @@ class ActigraphyProcessor:
 
     def process_single_video_file(self, video_file, name_stamp, roi, output_directory, progress_callback):
         if name_stamp or name_stamp is None:
-            print("Extracting creation time from the name.")
             creation_time = self._get_creation_time_from_name(video_file)
         else:
-            print("Using the file's actual creation time.")
             creation_time = int(os.path.getctime(video_file) * 1000)
 
         cap = cv2.VideoCapture(video_file)
@@ -434,21 +396,18 @@ class ActigraphyProcessor:
             elapsed_millis = cap.get(cv2.CAP_PROP_POS_MSEC)
 
             roi_frame = frame[roi[1]:roi[1] + roi[3], roi[0]:roi[0] + roi[2]]
-            visualize = (frame_number % 100 == 0)  # Collect frames for visualization every 100th frame
+            # Collect frames for visualization every 100th frame
+            visualize = (frame_number % 3 == 0)  # Collect frames for visualization every 3rd frame
             motion_detected = self.detect_mouse(roi_frame, self.min_size_threshold, intensity_threshold=50, contrast_threshold=50, visualize=visualize)
             posix_time = int(creation_time + elapsed_millis)
 
-            print(f"Frame: {frame_number}, Motion Detected: {motion_detected}, POSIX Time: {posix_time}")
-
             if motion_detected and not is_rat_present:
-                print(f"Detection Started: {posix_time}")
                 is_rat_present = True
                 detection_start_time = posix_time
             elif not motion_detected and is_rat_present:
                 detection_end_time = posix_time
                 detection_duration = detection_end_time - detection_start_time
                 if detection_duration >= self.min_duration:
-                    print(f"Detection Ended: {posix_time}")
                     result_rows.append((detection_start_time, detection_end_time))
                 is_rat_present = False
                 detection_start_time = None
@@ -463,7 +422,6 @@ class ActigraphyProcessor:
             if detection_duration >= self.min_duration:
                 result_rows.append((detection_start_time, detection_end_time))
         
-        print(result_rows)
         with open(output_file_path, 'w', newline='') as output_file:
             writer = csv.writer(output_file)
             writer.writerow(['Start Time (ms)', 'End Time (ms)'])
@@ -488,10 +446,9 @@ class ActigraphyProcessor:
         files_processed = 0
 
         if total_files == 0:
-            print("No video files to process.")
             return
 
-        for mp4_file in all_mp4_files: # runs through each video file detected
+        for mp4_file in all_mp4_files:
             file_start_time = time.time()
             self.process_single_video_file(mp4_file, name_stamp, roi, output_directory, None)
             file_end_time = time.time()
@@ -506,7 +463,6 @@ class ActigraphyProcessor:
             total_frames_processed += int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
         
-        # stats for long term recordings
         end_time = time.time()
         total_time_taken = end_time - start_time
         time_per_frame = total_time_taken / total_frames_processed if total_frames_processed else float('inf')
@@ -527,72 +483,7 @@ class ActigraphyProcessor:
         _, thresholded = cv2.threshold(frame_gray, intensity_threshold, 255, cv2.THRESH_BINARY_INV)
 
         kernel = np.ones((5, 5), np.uint8)
-        thresholded = cv2.morphologyEx(thresholded, cv2.MORPH_CLOSE, kernel)
-
-        contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        detected = False
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area > min_size_threshold:
-                mask = np.zeros_like(frame_gray)
-                cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
-                mean_intensity = cv2.mean(frame_gray, mask=mask)[0]
-
-                if mean_intensity < contrast_threshold:
-                    detected = True
-                    break
-        
-        if visualize:
-            # Collect frames instead of visualizing directly
-            self.frames_to_visualize.append((frame.copy(), frame_gray.copy(), thresholded.copy(), list(contours)))
-
-        print(f"Contours found: {len(contours)}, Motion Detected: {detected}")
-        return detected
-
-    @staticmethod
-    def _get_creation_time_from_name(filename):
-        regex_pattern_1 = r'(\d{8}_\d{9})'
-        regex_pattern_2 = r'(\d{8}_\d{6})'
-        
-        # Try the first regex pattern
-        match = re.search(regex_pattern_1, os.path.basename(filename))
-        
-        if match:
-            # Extract the matched date and time
-            date_time_str = match.group(1)
-            #print(date_time_str)
-            # Include milliseconds in the format
-            date_time_format = '%Y%m%d_%H%M%S%f'
-            
-            # Convert the date and time string to a datetime object
-            date_time_obj = datetime.strptime(date_time_str, date_time_format)
-            
-            # Get the POSIX timestamp in milliseconds
-            posix_timestamp_ms = int(date_time_obj.timestamp() * 1000)
-            
-            return posix_timestamp_ms
-        else:
-            # If the first pattern didn't match, try the second pattern
-            match = re.search(regex_pattern_2, os.path.basename(filename))
-            
-            if match:
-                # Extract the matched date and time from the second pattern
-                date_time_str = match.group(1)
-                
-                # Include milliseconds in the format
-                date_time_format = '%Y%m%d_%H%M%S'
-                
-                # Convert the date and time string to a datetime object
-                date_time_obj = datetime.strptime(date_time_str, date_time_format)
-                
-                # Get the POSIX timestamp in milliseconds
-                posix_timestamp_ms = int(date_time_obj.timestamp() * 1000)
-                
-                return posix_timestamp_ms
-            else:
-                print("Failed to extract creation time from the file name. Using file generated time instead.")
-                return int(os.path.getctime(filename)*1000)
+        thresholded
 
 
 if __name__ == "__main__":
