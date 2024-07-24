@@ -69,10 +69,6 @@ class ActigraphyProcessorApp(QWidget):
         self.worker = None
         self.init_ui()
 
-        self.video_timer = QTimer(self)
-        self.video_timer.timeout.connect(self.update_video_frame)
-        self.video_timer.start(30)
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
         print(f"QLabel Resized to: {self.video_display_label.width()} x {self.video_display_label.height()}")
@@ -123,8 +119,6 @@ class ActigraphyProcessorApp(QWidget):
         self.video_display_label = ClickableLabel()
         self.roi_status_label = QLabel("ROI not set", self)
 
-        self.real_time_video_label = QLabel()
-
         layout.addWidget(self.progress_bar)
         layout.addWidget(self.video_file_label)
         layout.addWidget(self.video_file_edit)
@@ -152,7 +146,6 @@ class ActigraphyProcessorApp(QWidget):
         layout.addWidget(self.video_display_label)
         layout.addWidget(self.btn_confirm_roi)
         layout.addWidget(self.roi_status_label)
-        layout.addWidget(self.real_time_video_label)
 
         container = QWidget()
         container.setLayout(layout)
@@ -281,26 +274,6 @@ class ActigraphyProcessorApp(QWidget):
         p = convert_to_Qt_format.scaled(self.video_display_label.width(), self.video_display_label.height(), Qt.KeepAspectRatio)
         return QPixmap.fromImage(p)
 
-    def update_video_frame(self):
-        if self.actigraphy_processor.frames_to_visualize:
-            frame, final_contours = self.actigraphy_processor.frames_to_visualize.pop(0)
-            # Pass the frame and final contours to the visualization method
-            self.visualize_detection(frame, final_contours)
-
-    def visualize_detection(self, frame, final_contours):
-        vis_frame = frame.copy()
-
-        # Draw only the final contours after all thresholding/filtering steps
-        for contour in final_contours:
-            cv2.drawContours(vis_frame, [contour], -1, (0, 0, 255), 2)  # Red for final contours
-
-        # Convert the frame to Qt image and display
-        qt_img = self.convert_cv_qt(vis_frame)
-        self.real_time_video_label.setPixmap(qt_img)
-
-        # Debug prints
-        print(f"Final Contours: {len(final_contours)}")
-
     def run(self):
         video_file = self.video_file_edit.text()
         video_folder = self.video_folder_edit.text()
@@ -356,7 +329,6 @@ class ActigraphyProcessor:
         self.intensity_threshold = 100
         self.contrast_threshold = 100
         self.min_duration = 2000  # in ms
-        self.frames_to_visualize = []
 
     def get_nested_paths(self, root_dir):
         queue = [root_dir]
@@ -424,7 +396,7 @@ class ActigraphyProcessor:
             roi_frame = frame[roi[1]:roi[1] + roi[3], roi[0]:roi[0] + roi[2]]
 
             visualize = frame_number % 3 == 0  # Validate visualization every 3rd frame
-            motion_detected = self.detect_mouse(roi_frame, self.min_size_threshold, intensity_threshold=50, contrast_threshold=50, visualize=visualize)
+            motion_detected = self.detect_mouse(roi_frame, self.min_size_threshold, intensity_threshold=50, contrast_threshold=50)
             posix_time = int(creation_time + elapsed_millis)
 
             if motion_detected and not is_rat_present:
@@ -500,7 +472,7 @@ class ActigraphyProcessor:
         if progress_callback:
             progress_callback.emit(100)
 
-    def detect_mouse(self, frame, min_size_threshold, intensity_threshold=50, contrast_threshold=50, visualize=False):
+    def detect_mouse(self, frame, min_size_threshold, intensity_threshold=50, contrast_threshold=50):
         if len(frame.shape) == 3 and frame.shape[2] == 3:
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         else:
@@ -529,10 +501,6 @@ class ActigraphyProcessor:
                 filtered_contours_intensity.append(contour)
 
         detected = len(filtered_contours_intensity) > 0
-
-        if visualize:
-            # Save only final contours for visualization
-            self.frames_to_visualize.append((frame.copy(), filtered_contours_intensity))
 
         return detected
 
