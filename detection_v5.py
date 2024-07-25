@@ -15,7 +15,6 @@ import re
 import datetime
 import time
 from datetime import datetime
-import matplotlib.pyplot as plt
 
 class Worker(QThread):
     progress_signal = pyqtSignal(int)
@@ -71,7 +70,6 @@ class ActigraphyProcessorApp(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        print(f"QLabel Resized to: {self.video_display_label.width()} x {self.video_display_label.height()}")
         self.update_frame_display()
 
     def paintEvent(self, event):

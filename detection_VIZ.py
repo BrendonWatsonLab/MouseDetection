@@ -15,7 +15,6 @@ import re
 import datetime
 import time
 from datetime import datetime
-import matplotlib.pyplot as plt
 
 class Worker(QThread):
     progress_signal = pyqtSignal(int)
@@ -75,7 +74,6 @@ class ActigraphyProcessorApp(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        print(f"QLabel Resized to: {self.video_display_label.width()} x {self.video_display_label.height()}")
         self.update_frame_display()
 
     def paintEvent(self, event):
@@ -297,9 +295,6 @@ class ActigraphyProcessorApp(QWidget):
         # Convert the frame to Qt image and display
         qt_img = self.convert_cv_qt(vis_frame)
         self.real_time_video_label.setPixmap(qt_img)
-
-        # Debug prints
-        print(f"Final Contours: {len(final_contours)}")
 
     def run(self):
         video_file = self.video_file_edit.text()
